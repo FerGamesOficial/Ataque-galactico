@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#050816">
+<title>Ataque Galáctico</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23050816'/%3E%3Ccircle cx='18' cy='20' r='2' fill='%23b9d8ff'/%3E%3Ccircle cx='82' cy='34' r='2.5' fill='%23b9d8ff'/%3E%3Ccircle cx='70' cy='85' r='1.5' fill='%23b9d8ff'/%3E%3Cpolygon points='50,76 42,92 58,92' fill='%23ffec3d'/%3E%3Cpolygon points='50,10 80,78 50,64 20,78' fill='%2300eaff'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23050816'/%3E%3Cpolygon points='50,76 42,92 58,92' fill='%23ffec3d'/%3E%3Cpolygon points='50,10 80,78 50,64 20,78' fill='%2300eaff'/%3E%3C/svg%3E">
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;overflow:hidden;background:#050816;color:#fff;font-family:Arial,sans-serif;touch-action:none}
+canvas{display:block;background:#050816}
+#hud{position:fixed;top:15px;left:15px;z-index:2;font-size:18px;font-weight:bold;text-shadow:0 0 8px #00eaff;pointer-events:none}
+#menu{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;justify-content:center;align-items:center;background:rgba(3,5,20,.92);text-align:center;padding:20px}
+#menu h1{margin:0 0 12px;color:#00eaff;font-size:clamp(2.2rem,8vw,5rem);text-shadow:0 0 20px #00eaff}
+#menu p{margin:6px;color:#c8d8ff;font-size:16px}
+#iniciar{margin-top:22px;padding:14px 30px;border:2px solid #00eaff;border-radius:8px;background:#07152d;color:#00eaff;font-size:18px;font-weight:bold;cursor:pointer;box-shadow:0 0 15px #00eaff}
+#iniciar:active{transform:scale(.95);background:#00eaff;color:#03101d}
+#mensaje{margin-top:15px;color:#ff5577;font-size:18px}
+#controlesMovil{display:none;position:fixed;bottom:calc(22px + env(safe-area-inset-bottom,0px));left:0;right:0;z-index:5;justify-content:space-between;align-items:center;padding:0 22px;pointer-events:none}
+.cruceta{text-align:center}
+.cruceta div{display:flex;justify-content:center;gap:6px}
+#controlesMovil button{width:58px;height:58px;margin:4px;padding:0;border:2px solid #00eaff;border-radius:12px;background:rgba(5,20,45,.85);color:#00eaff;font-size:25px;font-weight:bold;box-shadow:0 0 12px #00eaff;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none}
+#controlesMovil button:active{transform:scale(.9);background:#00eaff;color:#06101f}
+#botonDisparo{width:84px !important;height:84px !important;border-color:#ff315c !important;color:#ff315c !important;font-size:35px !important;box-shadow:0 0 18px #ff315c !important}
+@media (max-width:800px),(pointer:coarse){#controlesMovil{display:flex}#hud{top:10px;left:10px;font-size:15px}#menu p{font-size:14px}}
+</style>
+</head>
+<body>
+
+<div id="menu">
+  <h1>Ataque Galáctico</h1>
+  <p>Destruye a los enemigos y sobrevive.</p>
+  <p>Computadora: WASD / flechas para mover, mouse para apuntar, clic o espacio para disparar.</p>
+  <p>Celular: usa los botones de la pantalla (el disparo apunta solo).</p>
+  <button id="iniciar">JUGAR</button>
+  <div id="mensaje"></div>
+</div>
+
+<div id="hud">Puntuación: <span id="puntos">0</span> &nbsp;|&nbsp; Vidas: <span id="vidas">3</span> &nbsp;|&nbsp; Récord: <span id="record">0</span></div>
+
+<div id="controlesMovil">
+  <div class="cruceta">
+    <button data-tecla="w">▲</button>
+    <div><button data-tecla="a">◀</button><button data-tecla="s">▼</button><button data-tecla="d">▶</button></div>
+  </div>
+  <button id="botonDisparo">🔥</button>
+</div>
+
+<canvas id="juego"></canvas>
+
+<script>
+const $ = id => document.getElementById(id);
+const canvas = $("juego"), ctx = canvas.getContext("2d");
+const menu = $("menu"), iniciar = $("iniciar"), mensaje = $("mensaje");
+const puntosTexto = $("puntos"), vidasTexto = $("vidas"), recordTexto = $("record");
+
+let ancho, alto, jugando = false, puntuacion = 0, vidas = 3, record = 0;
+let tiempo = 0, ultimoDisparo = 0, ultimoEnemigo = 0, invulnerable = 0;
+let intervaloDisparo = null, autoApuntado = false, lastFrame = 0, loopToken = 0;
+let teclas = {}, balas = [], enemigos = [], particulas = [], estrellas = [];
+const raton = { x: 0, y: 0, activo: false };
+const jugador = { x: 0, y: 0, radio: 18, velocidad: 5, angulo: -Math.PI / 2 };
+
+try { record = parseInt(localStorage.getItem("ataque-record")) || 0; } catch (e) {}
+recordTexto.textContent = record;
+
+function ajustarCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  ancho = window.innerWidth; alto = window.innerHeight;
+  canvas.width = ancho * dpr; canvas.height = alto * dpr;
+  canvas.style.width = ancho + "px"; canvas.style.height = alto + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (!jugando) { jugador.x = ancho / 2; jugador.y = alto - 120; }
+  jugador.x = Math.max(25, Math.min(ancho - 25, jugador.x));
+  jugador.y = Math.max(25, Math.min(alto - 25, jugador.y));
+  estrellas = Array.from({ length: 140 }, () => ({
+    x: Math.random() * ancho, y: Math.random() * alto,
+    tamaño: Math.random() * 2 + .5, velocidad: Math.random() * 1.5 + .3
+  }));
+  if (!jugando) dibujar();
+}
+window.addEventListener("resize", ajustarCanvas);
+
+// ---------- Entrada ----------
+document.addEventListener("keydown", e => {
+  const k = e.key.toLowerCase();
+  teclas[k] = true;
+  if (e.key === " " || e.key.startsWith("Arrow")) e.preventDefault();
+  if (k === "r" && !jugando) iniciarJuego();
+});
+document.addEventListener("keyup", e => { teclas[e.key.toLowerCase()] = false; });
+canvas.addEventListener("mousemove", e => { raton.x = e.clientX; raton.y = e.clientY; raton.activo = true; });
+canvas.addEventListener("click", disparar);
+iniciar.addEventListener("click", iniciarJuego);
+
+// ---------- Juego ----------
+function iniciarJuego() {
+  if (jugando) return;
+  jugando = true;
+  puntuacion = 0; vidas = 3; tiempo = 0; ultimoDisparo = -999; ultimoEnemigo = 0; invulnerable = 0;
+  balas = []; enemigos = []; particulas = [];
+  jugador.x = ancho / 2; jugador.y = alto - 120; jugador.angulo = -Math.PI / 2;
+  puntosTexto.textContent = 0; vidasTexto.textContent = vidas;
+  mensaje.textContent = ""; iniciar.textContent = "JUGAR DE NUEVO"; menu.style.display = "none";
+  loopToken++;
+  lastFrame = performance.now();
+  const token = loopToken;
+  requestAnimationFrame(t => token === loopToken && bucle(t, token));
+}
+
+function disparar() {
+  if (!jugando) return;
+  const ahora = performance.now();
+  if (ahora - ultimoDisparo < 180) return;
+  ultimoDisparo = ahora;
+  balas.push({
+    x: jugador.x + Math.cos(jugador.angulo) * 24, y: jugador.y + Math.sin(jugador.angulo) * 24,
+    vx: Math.cos(jugador.angulo) * 10, vy: Math.sin(jugador.angulo) * 10, radio: 4
+  });
+}
+
+function crearEnemigo() {
+  const lado = Math.floor(Math.random() * 4);
+  let x, y;
+  if (lado === 0) { x = Math.random() * ancho; y = -40; }
+  else if (lado === 1) { x = ancho + 40; y = Math.random() * alto; }
+  else if (lado === 2) { x = Math.random() * ancho; y = alto + 40; }
+  else { x = -40; y = Math.random() * alto; }
+  const grande = Math.random() < .2;
+  enemigos.push({
+    x, y, radio: grande ? 27 : 17, velocidad: grande ? 1.15 : 1.8 + Math.random() * 1.3,
+    vida: grande ? 3 : 1, color: grande ? "#ff9d00" : "#ff315c"
+  });
+}
+
+function crearExplosion(x, y, color) {
+  for (let i = 0; i < 18; i++) {
+    const a = Math.random() * Math.PI * 2, v = Math.random() * 4 + 1;
+    particulas.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vida: 1, color });
+  }
+}
+
+function moverJugador(k) {
+  let dx = 0, dy = 0;
+  if (teclas.w || teclas.arrowup) dy--;
+  if (teclas.s || teclas.arrowdown) dy++;
+  if (teclas.a || teclas.arrowleft) dx--;
+  if (teclas.d || teclas.arrowright) dx++;
+  if (dx || dy) {
+    const d = Math.hypot(dx, dy);
+    jugador.x += dx / d * jugador.velocidad * k;
+    jugador.y += dy / d * jugador.velocidad * k;
+  }
+  jugador.x = Math.max(25, Math.min(ancho - 25, jugador.x));
+  jugador.y = Math.max(25, Math.min(alto - 25, jugador.y));
+  // El mouse apunta siempre desde la posición actual de la nave
+  if (!autoApuntado && raton.activo) jugador.angulo = Math.atan2(raton.y - jugador.y, raton.x - jugador.x);
+}
+
+function actualizar(dt) {
+  const k = dt / 16.667;           // movimiento independiente de los Hz de la pantalla
+  tiempo += dt;
+  if (invulnerable > 0) invulnerable -= dt;
+  moverJugador(k);
+  if (teclas[" "]) disparar();
+
+  if (tiempo - ultimoEnemigo > Math.max(417, 1250 - tiempo / 100)) { crearEnemigo(); ultimoEnemigo = tiempo; }
+
+  balas.forEach(b => { b.x += b.vx * k; b.y += b.vy * k; });
+  balas = balas.filter(b => b.x > -30 && b.x < ancho + 30 && b.y > -30 && b.y < alto + 30);
+
+  for (let i = enemigos.length - 1; i >= 0; i--) {
+    const e = enemigos[i], dx = jugador.x - e.x, dy = jugador.y - e.y, d = Math.hypot(dx, dy);
+    if (d > 0) { e.x += dx / d * e.velocidad * k; e.y += dy / d * e.velocidad * k; }
+    if (d < jugador.radio + e.radio && invulnerable <= 0) {
+      crearExplosion(e.x, e.y, e.color);
+      enemigos.splice(i, 1);
+      vidas--; vidasTexto.textContent = vidas;
+      invulnerable = 1000;         // 1 s de invulnerabilidad tras un golpe
+      if (vidas <= 0) return terminarJuego();
+    }
+  }
+
+  for (let i = balas.length - 1; i >= 0; i--) {
+    for (let j = enemigos.length - 1; j >= 0; j--) {
+      const b = balas[i], e = enemigos[j];
+      if (Math.hypot(b.x - e.x, b.y - e.y) < b.radio + e.radio) {
+        balas.splice(i, 1);
+        if (--e.vida <= 0) {
+          crearExplosion(e.x, e.y, e.color);
+          puntuacion += e.radio > 20 ? 30 : 10;
+          puntosTexto.textContent = puntuacion;
+          enemigos.splice(j, 1);
+        }
+        break;
+      }
+    }
+  }
+
+  particulas.forEach(p => {
+    p.x += p.vx * k; p.y += p.vy * k;
+    const f = Math.pow(.96, k); p.vx *= f; p.vy *= f;
+    p.vida -= .025 * k;
+  });
+  particulas = particulas.filter(p => p.vida > 0);
+
+  estrellas.forEach(s => {
+    s.y += s.velocidad * k;
+    if (s.y > alto) { s.y = 0; s.x = Math.random() * ancho; }
+  });
+}
+
+// ---------- Dibujo ----------
+function dibujar() {
+  ctx.fillStyle = "#050816"; ctx.fillRect(0, 0, ancho, alto);
+  ctx.fillStyle = "#b9d8ff"; ctx.globalAlpha = .8;
+  estrellas.forEach(s => { ctx.beginPath(); ctx.arc(s.x, s.y, s.tamaño, 0, Math.PI * 2); ctx.fill(); });
+  ctx.globalAlpha = 1;
+
+  particulas.forEach(p => {
+    ctx.globalAlpha = Math.max(0, p.vida);
+    ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fillStyle = p.color; ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+
+  ctx.shadowColor = "#00eaff"; ctx.shadowBlur = 12; ctx.fillStyle = "#fff";
+  balas.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, b.radio, 0, Math.PI * 2); ctx.fill(); });
+  ctx.shadowBlur = 0;
+
+  enemigos.forEach(e => {
+    ctx.beginPath(); ctx.arc(e.x, e.y, e.radio, 0, Math.PI * 2);
+    ctx.fillStyle = e.color; ctx.shadowColor = e.color; ctx.shadowBlur = 18; ctx.fill(); ctx.shadowBlur = 0;
+    ctx.beginPath(); ctx.arc(e.x - e.radio * .3, e.y - e.radio * .3, e.radio * .25, 0, Math.PI * 2);
+    ctx.fillStyle = "#fff"; ctx.fill();
+  });
+
+  // Nave (parpadea mientras es invulnerable)
+  if (invulnerable > 0 && Math.floor(invulnerable / 100) % 2 === 0) ctx.globalAlpha = .35;
+  ctx.save();
+  ctx.translate(jugador.x, jugador.y); ctx.rotate(jugador.angulo);
+  ctx.shadowColor = "#00eaff"; ctx.shadowBlur = 20;
+  ctx.beginPath(); ctx.moveTo(25, 0); ctx.lineTo(-18, -15); ctx.lineTo(-10, 0); ctx.lineTo(-18, 15); ctx.closePath();
+  ctx.fillStyle = "#00eaff"; ctx.fill(); ctx.shadowBlur = 0;
+  ctx.beginPath(); ctx.moveTo(-12, -7); ctx.lineTo(-28, 0); ctx.lineTo(-12, 7); ctx.closePath();
+  ctx.fillStyle = "#ffec3d"; ctx.fill();
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+function terminarJuego() {
+  jugando = false;
+  detenerDisparoAutomatico();
+  teclas = {};
+  const nuevo = puntuacion > record;
+  if (nuevo) {
+    record = puntuacion; recordTexto.textContent = record;
+    try { localStorage.setItem("ataque-record", record); } catch (e) {}
+  }
+  mensaje.innerHTML = `Fin del juego<br>Puntuación final: <strong>${puntuacion}</strong>${nuevo ? " 🏆 ¡Nuevo récord!" : ""}<br>Presiona el botón o la tecla R para volver a jugar`;
+  menu.style.display = "flex";
+}
+
+function bucle(ts, token) {
+  if (!jugando || token !== loopToken) return;
+  const dt = Math.min(ts - lastFrame, 50); // evita saltos al volver de otra pestaña
+  lastFrame = ts;
+  actualizar(dt);
+  dibujar();
+  if (jugando) requestAnimationFrame(t => bucle(t, token));
+}
+
+// ---------- Controles táctiles ----------
+document.querySelectorAll("#controlesMovil button[data-tecla]").forEach(boton => {
+  const tecla = boton.dataset.tecla;
+  const on = e => { e.preventDefault(); teclas[tecla] = true; };
+  const off = e => { e.preventDefault(); teclas[tecla] = false; };
+  ["touchstart", "mousedown"].forEach(ev => boton.addEventListener(ev, on, { passive: false }));
+  ["touchend", "touchcancel", "mouseup", "mouseleave"].forEach(ev => boton.addEventListener(ev, off, { passive: false }));
+});
+
+function apuntarAlEnemigoMasCercano() {
+  if (!enemigos.length) { jugador.angulo = -Math.PI / 2; return; }
+  let cercano = enemigos[0], menor = Infinity;
+  enemigos.forEach(e => {
+    const d = (e.x - jugador.x) ** 2 + (e.y - jugador.y) ** 2;
+    if (d < menor) { menor = d; cercano = e; }
+  });
+  jugador.angulo = Math.atan2(cercano.y - jugador.y, cercano.x - jugador.x);
+}
+
+function iniciarDisparoAutomatico() {
+  if (!jugando || intervaloDisparo) return;
+  autoApuntado = true;
+  const tick = () => {
+    if (!jugando) return detenerDisparoAutomatico();
+    apuntarAlEnemigoMasCercano();
+    disparar();
+  };
+  tick();
+  intervaloDisparo = setInterval(tick, 100);
+}
+function detenerDisparoAutomatico() {
+  autoApuntado = false;
+  if (intervaloDisparo) { clearInterval(intervaloDisparo); intervaloDisparo = null; }
+}
+
+const botonDisparo = $("botonDisparo");
+["touchstart", "mousedown"].forEach(ev => botonDisparo.addEventListener(ev, e => { e.preventDefault(); iniciarDisparoAutomatico(); }, { passive: false }));
+["touchend", "touchcancel", "mouseup", "mouseleave"].forEach(ev => botonDisparo.addEventListener(ev, e => { e.preventDefault(); detenerDisparoAutomatico(); }, { passive: false }));
+
+// Evita botones atascados al perder el foco
+window.addEventListener("blur", () => { teclas = {}; detenerDisparoAutomatico(); });
+
+ajustarCanvas();
+</script>
+</body>
+</html>
